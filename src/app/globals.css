@@ -1,0 +1,389 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+JP:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-base: #090909;
+  --bg-surface: #111114;
+  --bg-elevated: #1a1a1e;
+  --border: #2a2a30;
+  --accent-cyan: #00d4ff;
+  --accent-amber: #f59e0b;
+  --accent-red: #ef4444;
+  --text-primary: #e8e8ea;
+  --text-secondary: #8888a0;
+  --text-muted: #444458;
+
+  --sidebar-collapsed: 64px;
+  --sidebar-expanded: 220px;
+  --content-padding: 24px;
+  --card-radius: 8px;
+
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-sans: 'Noto Sans JP', sans-serif;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  overflow: hidden;
+  min-height: 100vh;
+}
+
+/* ====== Scrollbar ====== */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* ====== Cards ====== */
+@layer components {
+  .card {
+    @apply rounded-lg p-4;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--card-radius);
+  }
+
+  .card-elevated {
+    @apply rounded-lg p-4;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--card-radius);
+  }
+
+  /* ====== Buttons ====== */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md font-medium text-sm transition-all duration-150;
+    font-family: var(--font-sans);
+    cursor: pointer;
+    border: none;
+    outline: none;
+  }
+
+  .btn:active {
+    transform: scale(0.97);
+  }
+
+  .btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .btn-primary {
+    background: var(--accent-cyan);
+    color: #000;
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    background: #33ddff;
+    box-shadow: 0 0 20px rgba(0, 212, 255, 0.25);
+  }
+
+  .btn-danger {
+    background: var(--accent-red);
+    color: #fff;
+  }
+
+  .btn-danger:hover:not(:disabled) {
+    background: #f87171;
+    box-shadow: 0 0 20px rgba(239, 68, 68, 0.25);
+  }
+
+  .btn-secondary {
+    background: transparent;
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+  }
+
+  .btn-secondary:hover:not(:disabled) {
+    background: var(--bg-elevated);
+    border-color: var(--text-muted);
+  }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--text-secondary);
+  }
+
+  .btn-ghost:hover:not(:disabled) {
+    color: var(--text-primary);
+    background: var(--bg-elevated);
+  }
+
+  /* ====== Status Badges ====== */
+  .badge {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium;
+  }
+
+  .badge-pc {
+    background: rgba(0, 212, 255, 0.15);
+    color: var(--accent-cyan);
+  }
+
+  .badge-quest {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--accent-amber);
+  }
+
+  .badge-connected {
+    color: var(--accent-cyan);
+  }
+
+  .badge-disconnected {
+    color: var(--accent-red);
+  }
+
+  /* ====== Inputs ====== */
+  .input {
+    @apply w-full px-3 py-2 rounded-md text-sm;
+    background: var(--bg-base);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  .input:focus {
+    border-color: var(--accent-cyan);
+    box-shadow: 0 0 0 1px rgba(0, 212, 255, 0.2);
+  }
+
+  .input-mono {
+    font-family: var(--font-mono);
+  }
+
+  /* ====== Toggle Switch ====== */
+  .toggle {
+    @apply relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 cursor-pointer;
+    background: var(--border);
+  }
+
+  .toggle[data-checked="true"] {
+    background: var(--accent-cyan);
+  }
+
+  .toggle-dot {
+    @apply inline-block h-4 w-4 rounded-full bg-white transition-transform duration-200;
+    transform: translateX(4px);
+  }
+
+  .toggle[data-checked="true"] .toggle-dot {
+    transform: translateX(24px);
+  }
+
+  /* ====== Slider ====== */
+  .slider {
+    @apply w-full h-1.5 rounded-full appearance-none cursor-pointer;
+    background: var(--border);
+  }
+
+  .slider::-webkit-slider-thumb {
+    @apply appearance-none w-4 h-4 rounded-full;
+    background: var(--accent-cyan);
+    cursor: pointer;
+  }
+
+  /* ====== Select ====== */
+  .select {
+    @apply px-3 py-2 rounded-md text-sm;
+    background: var(--bg-base);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    outline: none;
+    cursor: pointer;
+  }
+
+  .select:focus {
+    border-color: var(--accent-cyan);
+  }
+
+  /* ====== Modal Overlay ====== */
+  .modal-overlay {
+    @apply fixed inset-0 z-50 flex items-center justify-center;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+    animation: fadeIn 200ms ease-out;
+  }
+
+  .modal-content {
+    @apply relative w-full max-w-md rounded-xl p-6;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    animation: scaleIn 200ms ease-out;
+  }
+
+  /* ====== Progress Ring ====== */
+  .progress-ring {
+    transform: rotate(-90deg);
+  }
+
+  .progress-ring-circle {
+    transition: stroke-dashoffset 1s linear;
+  }
+
+  /* ====== Page Transitions ====== */
+  .page-enter {
+    animation: fadeIn 150ms ease-out, slideUp 150ms ease-out;
+  }
+
+  /* ====== Code Display ====== */
+  .code-digit {
+    @apply flex items-center justify-center text-3xl font-bold rounded-lg;
+    width: 56px;
+    height: 64px;
+    background: var(--bg-base);
+    border: 2px solid var(--border);
+    color: var(--accent-cyan);
+    font-family: var(--font-mono);
+  }
+
+  .code-digit-input {
+    @apply flex items-center justify-center text-2xl font-bold rounded-lg text-center;
+    width: 56px;
+    height: 64px;
+    background: var(--bg-base);
+    border: 2px solid var(--border);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    outline: none;
+    caret-color: var(--accent-cyan);
+  }
+
+  .code-digit-input:focus {
+    border-color: var(--accent-cyan);
+    box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.2);
+  }
+
+  /* ====== Tooltips ====== */
+  .tooltip {
+    @apply absolute z-50 px-2 py-1 text-xs rounded;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    white-space: nowrap;
+    pointer-events: none;
+  }
+}
+
+/* ====== Quest-specific styles ====== */
+.quest-bg {
+  background-color: var(--bg-base);
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 40px 40px;
+  animation: gridPan 20s linear infinite;
+}
+
+/* ====== Debug Terminal ====== */
+.debug-bg {
+  background-color: #060608;
+}
+
+.debug-row-in {
+  border-left: 2px solid var(--text-primary);
+}
+
+.debug-row-out {
+  border-left: 2px solid var(--accent-cyan);
+}
+
+.debug-row-error {
+  border-left: 2px solid var(--accent-red);
+}
+
+/* ====== Log Level Badges ====== */
+.log-debug {
+  @apply px-1.5 py-0.5 rounded text-xs font-mono;
+  background: rgba(100, 100, 120, 0.2);
+  color: #888;
+}
+
+.log-info {
+  @apply px-1.5 py-0.5 rounded text-xs font-mono;
+  background: rgba(0, 212, 255, 0.15);
+  color: var(--accent-cyan);
+}
+
+.log-warn {
+  @apply px-1.5 py-0.5 rounded text-xs font-mono;
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--accent-amber);
+}
+
+.log-error {
+  @apply px-1.5 py-0.5 rounded text-xs font-mono;
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--accent-red);
+}
+
+/* ====== Animations ====== */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes pulseDot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+@keyframes flashHighlight {
+  from { background-color: rgba(0, 212, 255, 0.15); }
+  to { background-color: transparent; }
+}
+
+@keyframes gridPan {
+  from { background-position: 0 0; }
+  to { background-position: 40px 40px; }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* ====== Toast overrides ====== */
+[data-sonner-toaster] {
+  font-family: var(--font-sans) !important;
+}

@@ -1,0 +1,30 @@
+import { create } from 'zustand';
+import type { ClipboardEntry } from '@/lib/constants';
+
+interface ClipboardState {
+  currentText: string;
+  log: ClipboardEntry[];
+  isExpanded: boolean;
+  setCurrentText: (text: string) => void;
+  addLogEntry: (entry: ClipboardEntry) => void;
+  clearLog: () => void;
+  setLog: (log: ClipboardEntry[]) => void;
+  setIsExpanded: (expanded: boolean) => void;
+}
+
+export const useClipboardStore = create<ClipboardState>((set) => ({
+  currentText: '',
+  log: [],
+  isExpanded: false,
+
+  setCurrentText: (text) => set({ currentText: text }),
+
+  addLogEntry: (entry) =>
+    set((state) => ({
+      log: [entry, ...state.log],
+    })),
+
+  clearLog: () => set({ log: [] }),
+  setLog: (log) => set({ log }),
+  setIsExpanded: (isExpanded) => set({ isExpanded }),
+}));
