@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { getCookie } from '@/lib/utils';
+import { getCookie, setCookie } from '@/lib/utils';
 import { AUTH_STATES, type AuthState } from '@/lib/constants';
 import { AuthRequest } from '@/components/quest/AuthRequest';
 import { CodeEntry } from '@/components/quest/CodeEntry';
@@ -46,9 +46,14 @@ export default function QuestPage() {
       setAuthState(AUTH_STATES.REJECTED);
     },
     onAuthSuccess: (token, expiresAt) => {
-      // In a real app the server will set HttpOnly cookie, but we can also set standard cookie if needed.
-      // Wait for navigation
-      router.push('/quest/clipboard');
+      // Save token as cookie so clipboard page can use it
+      const daysUntilExpiry = Math.max(1, Math.ceil((expiresAt - Date.now()) / 86400000));
+      setCookie('crossclip_token', token, daysUntilExpiry);
+      
+      // Small delay to ensure cookie is set before navigation
+      setTimeout(() => {
+        router.push('/quest/clipboard');
+      }, 100);
     },
     onAuthCodeInvalid: (attempts) => {
       setCodeError('コードが正しくありません');

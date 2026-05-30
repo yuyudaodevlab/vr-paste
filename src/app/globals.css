@@ -383,6 +383,38 @@ body {
   to { transform: rotate(360deg); }
 }
 
+/* ====== Sync Pulse Dot ====== */
+.sync-pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-cyan);
+  animation: syncPulse 2s ease-in-out infinite;
+  box-shadow: 0 0 6px rgba(0, 212, 255, 0.4);
+}
+
+@keyframes syncPulse {
+  0%, 100% { 
+    opacity: 1; 
+    box-shadow: 0 0 6px rgba(0, 212, 255, 0.4);
+  }
+  50% { 
+    opacity: 0.5; 
+    box-shadow: 0 0 12px rgba(0, 212, 255, 0.6);
+  }
+}
+
+/* ====== Send Animation ====== */
+@keyframes sendPulse {
+  0% { box-shadow: 0 0 0 0 rgba(0, 212, 255, 0.3); }
+  70% { box-shadow: 0 0 0 10px rgba(0, 212, 255, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(0, 212, 255, 0); }
+}
+
+.send-pulse {
+  animation: sendPulse 0.6s ease-out;
+}
+
 /* ====== Toast overrides ====== */
 [data-sonner-toaster] {
   font-family: var(--font-sans) !important;

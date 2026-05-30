@@ -8,6 +8,7 @@ use chrono::Utc;
 use futures_util::{sink::SinkExt, stream::StreamExt};
 use serde_json::Value;
 use std::sync::Arc;
+use tauri::Emitter;
 use uuid::Uuid;
 
 pub async fn ws_handler(
@@ -51,8 +52,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                         if let Some(code) = payload.get("code").and_then(|c| c.as_str()) {
                             let ip = "unknown"; // Extract IP properly in a real setup
                             let lockout = state_clone.settings.read().await.code_lockout_minutes;
+                            let request_id_str = request_id.as_str().unwrap_or("");
                             
-                            match validate_code(&state_clone, code, request_id.as_str().unwrap_or(""), ip, lockout).await {
+                            match validate_code(&state_clone, code, request_id_str, ip, lockout).await {
                                 Ok(token) => {
                                     let device = DeviceInfo {
                                         id: conn_id_for_recv.clone(),
@@ -61,17 +63,28 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                                         nickname: None,
                                         connected_at: Utc::now().timestamp_millis(),
                                     };
-                                    state_clone.connected_devices.write().await.insert(conn_id_for_recv.clone(), device);
+                                    state_clone.connected_devices.write().await.insert(conn_id_for_recv.clone(), device.clone());
                                     
                                     let expiry = Utc::now().timestamp_millis() + (state_clone.settings.read().await.session_expiry_days as i64 * 24 * 60 * 60 * 1000);
                                     let success_msg = serde_json::json!({
                                         "type": "AUTH_SUCCESS",
                                         "payload": {
                                             "token": token,
-                                            "expiresAt": expiry
+                                            "expiresAt": expiry,
+                                            "requestId": request_id_str
                                         }
                                     });
                                     let _ = state_clone.ws_broadcast.send(success_msg.to_string());
+
+                                    // Emit device-connected event to PC frontend
+                                    if let Some(app_handle) = state_clone.app_handle.read().await.as_ref() {
+                                        let _ = app_handle.emit("device-connected", serde_json::json!({
+                                            "id": device.id,
+                                            "ip": device.ip,
+                                            "userAgent": device.user_agent,
+                                            "connectedAt": device.connected_at
+                                        }));
+                                    }
                                 }
                                 Err((reason, attempts)) => {
                                     let err_msg = if reason == "LOCKED" {
@@ -97,7 +110,6 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
 
                 // Handle CLIPBOARD_PUSH
                 if msg_type == "CLIPBOARD_PUSH" {
-                    // Note: Needs token validation here in production
                     if let Some(text) = json["payload"]["text"].as_str() {
                         if !text.is_empty() {
                             let mut clipboard = arboard::Clipboard::new().unwrap();
@@ -112,8 +124,26 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
 
                             let mut log = state_clone.clipboard_log.write().await;
                             log.insert(0, entry.clone());
+
+                            let max_entries = state_clone.settings.read().await.max_log_entries as usize;
+                            if log.len() > max_entries {
+                                log.truncate(max_entries);
+                            }
                             
-                            // Broadcast back
+                            // Emit Tauri event so PC frontend updates in real-time
+                            if let Some(app_handle) = state_clone.app_handle.read().await.as_ref() {
+                                let _ = app_handle.emit("clipboard-updated", serde_json::json!({
+                                    "text": entry.text,
+                                    "entry": {
+                                        "id": entry.id,
+                                        "text": entry.text,
+                                        "source": entry.source,
+                                        "timestamp": entry.timestamp
+                                    }
+                                }));
+                            }
+
+                            // Broadcast back via WebSocket
                             let update_msg = serde_json::json!({
                                 "type": "CLIPBOARD_UPDATE",
                                 "payload": {
@@ -137,4 +167,11 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
 
     // Cleanup on disconnect
     state.connected_devices.write().await.remove(&connection_id);
+
+    // Emit device-disconnected event to PC frontend
+    if let Some(app_handle) = state.app_handle.read().await.as_ref() {
+        let _ = app_handle.emit("device-disconnected", serde_json::json!({
+            "id": connection_id
+        }));
+    }
 }

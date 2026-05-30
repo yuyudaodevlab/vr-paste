@@ -2,6 +2,7 @@ use crate::state::{AppState, ClipboardEntry};
 use arboard::Clipboard;
 use chrono::Utc;
 use std::sync::Arc;
+use tauri::Emitter;
 use tokio::time::{sleep, Duration};
 use uuid::Uuid;
 
@@ -36,7 +37,20 @@ pub async fn start_clipboard_monitor(state: Arc<AppState>) {
                     log.truncate(max_entries);
                 }
 
-                // Broadcast
+                // Emit Tauri event so PC frontend updates in real-time
+                if let Some(app_handle) = state.app_handle.read().await.as_ref() {
+                    let _ = app_handle.emit("clipboard-updated", serde_json::json!({
+                        "text": entry.text,
+                        "entry": {
+                            "id": entry.id,
+                            "text": entry.text,
+                            "source": entry.source,
+                            "timestamp": entry.timestamp
+                        }
+                    }));
+                }
+
+                // Broadcast via WebSocket to Quest clients
                 let msg = serde_json::json!({
                     "type": "CLIPBOARD_UPDATE",
                     "payload": {
