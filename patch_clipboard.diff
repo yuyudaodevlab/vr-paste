@@ -1,0 +1,14 @@
+<<<<<<< SEARCH
+    onAuthRejected: () => {
+      // Token invalid
+      router.push('/quest');
+    }
+=======
+    onAuthRejected: (reason) => {
+      if (reason === 'invalid_token') {
+        document.cookie = 'crossclip_token=; Max-Age=0; path=/';
+      }
+      // Token invalid
+      router.push('/quest');
+    }
+>>>>>>> REPLACE
