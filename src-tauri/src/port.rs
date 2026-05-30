@@ -1,7 +1,11 @@
 use rand::Rng;
 use std::net::TcpListener;
 
-pub fn find_available_port() -> Option<u16> {
+pub fn find_specific_or_available_port(target_port: u16) -> Option<u16> {
+    if check_port_available(target_port) {
+        return Some(target_port);
+    }
+    // Fallback to random
     let mut rng = rand::thread_rng();
     for _ in 0..10 {
         let port = rng.gen_range(1024..49151);

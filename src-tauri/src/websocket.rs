@@ -1,5 +1,5 @@
 use crate::auth::validate_code;
-use crate::state::{AppState, ClipboardEntry, DeviceInfo};
+use crate::state::{AppState, ClipboardEntry, DeviceInfo, WsLogEntry};
 use axum::{
     extract::{ConnectInfo, ws::{Message, WebSocket}, State, WebSocketUpgrade},
     response::IntoResponse,
@@ -29,8 +29,28 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, client_ip: Strin
     let connection_id = Uuid::new_v4().to_string();
     let conn_id_for_recv = connection_id.clone();
 
+    let state_for_send = Arc::clone(&state);
     let mut send_task = tokio::spawn(async move {
         while let Ok(msg) = rx.recv().await {
+            // Track outgoing msg
+            {
+                let mut sent = state_for_send.messages_sent.write().await;
+                *sent += 1;
+                let mut logs = state_for_send.ws_logs.write().await;
+                let log = WsLogEntry {
+                    id: Uuid::new_v4().to_string(),
+                    timestamp: Utc::now().timestamp_millis(),
+                    direction: "OUT".to_string(),
+                    msg_type: serde_json::from_str::<Value>(&msg).ok().and_then(|v| v["type"].as_str().map(String::from)).unwrap_or_else(|| "UNKNOWN".to_string()),
+                    payload: msg.clone(),
+                };
+                logs.insert(0, log.clone());
+                if logs.len() > 200 { logs.truncate(200); }
+                if let Some(app_handle) = state_for_send.app_handle.read().await.as_ref() {
+                    let _ = app_handle.emit("ws-log", log);
+                }
+            }
+
             if sender.send(Message::Text(msg)).await.is_err() {
                 break;
             }
@@ -41,6 +61,25 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, client_ip: Strin
     let client_ip_clone = client_ip.clone();
     let mut recv_task = tokio::spawn(async move {
         while let Some(Ok(Message::Text(text))) = receiver.next().await {
+            // Track incoming msg
+            {
+                let mut received = state_clone.messages_received.write().await;
+                *received += 1;
+                let mut logs = state_clone.ws_logs.write().await;
+                let log = WsLogEntry {
+                    id: Uuid::new_v4().to_string(),
+                    timestamp: Utc::now().timestamp_millis(),
+                    direction: "IN".to_string(),
+                    msg_type: serde_json::from_str::<Value>(&text).ok().and_then(|v| v["type"].as_str().map(String::from)).unwrap_or_else(|| "UNKNOWN".to_string()),
+                    payload: text.clone(),
+                };
+                logs.insert(0, log.clone());
+                if logs.len() > 200 { logs.truncate(200); }
+                if let Some(app_handle) = state_clone.app_handle.read().await.as_ref() {
+                    let _ = app_handle.emit("ws-log", log);
+                }
+            }
+
             if let Ok(json) = serde_json::from_str::<Value>(&text) {
                 let msg_type = json["type"].as_str().unwrap_or("");
                 

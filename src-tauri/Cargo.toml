@@ -8,6 +8,7 @@ description = "Cross-device clipboard sharing between Quest and PC"
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-store = "2"
 tauri-plugin-clipboard-manager = "2"
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }

@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::AppHandle;
 use tokio::sync::{broadcast, RwLock};
+use chrono::Utc;
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Settings {
@@ -43,6 +44,25 @@ impl Default for Settings {
             debug_mode: false,
         }
     }
+}
+
+#[derive(Clone, Serialize, Debug)]
+pub struct WsLogEntry {
+    pub id: String,
+    pub timestamp: i64,
+    pub direction: String, // "IN" or "OUT"
+    pub msg_type: String,
+    pub payload: String,
+}
+
+#[derive(Clone, Serialize, Debug)]
+pub struct ConnectionAttempt {
+    pub id: String,
+    pub timestamp: i64,
+    pub ip: String,
+    #[serde(rename = "userAgent")]
+    pub user_agent: String,
+    pub result: String, // "承認", "拒否", "タイムアウト"
 }
 
 #[derive(Clone, Serialize, Debug)]
@@ -113,6 +133,12 @@ pub struct AppState {
     
     pub settings: RwLock<Settings>,
     pub debug_logs: RwLock<Vec<LogEntry>>,
+    pub ws_logs: RwLock<Vec<WsLogEntry>>,
+    pub connection_history: RwLock<Vec<ConnectionAttempt>>,
+    
+    pub messages_sent: RwLock<u64>,
+    pub messages_received: RwLock<u64>,
+    pub start_time: i64,
     
     pub ws_broadcast: broadcast::Sender<String>,
 
@@ -137,6 +163,11 @@ impl AppState {
             rate_limit: RwLock::new(HashMap::new()),
             settings: RwLock::new(Settings::default()),
             debug_logs: RwLock::new(Vec::new()),
+            ws_logs: RwLock::new(Vec::new()),
+            connection_history: RwLock::new(Vec::new()),
+            messages_sent: RwLock::new(0),
+            messages_received: RwLock::new(0),
+            start_time: Utc::now().timestamp_millis(),
             ws_broadcast: tx,
             active_sessions: RwLock::new(HashMap::new()),
             app_handle: RwLock::new(None),

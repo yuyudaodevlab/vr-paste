@@ -145,6 +145,19 @@ async fn handle_auth_request(
         }));
     }
     
+    // Log connection attempt
+    {
+        let mut history = state.connection_history.write().await;
+        history.insert(0, crate::state::ConnectionAttempt {
+            id: request.id.clone(),
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            ip: request.ip.clone(),
+            user_agent: request.user_agent.clone(),
+            result: "保留".to_string(), // Pending
+        });
+        if history.len() > 100 { history.truncate(100); }
+    }
+    
     (StatusCode::OK, Json(serde_json::json!({ "requestId": request.id })))
 }
 
@@ -253,6 +266,23 @@ async fn handle_auth_validate(
                 }));
             }
 
+            // Update connection history to success
+            {
+                let mut history = state.connection_history.write().await;
+                if let Some(entry) = history.iter_mut().find(|e| e.id == body.request_id) {
+                    entry.result = "承認".to_string();
+                } else {
+                    history.insert(0, crate::state::ConnectionAttempt {
+                        id: body.request_id.clone(),
+                        timestamp: chrono::Utc::now().timestamp_millis(),
+                        ip: ip.clone(),
+                        user_agent: ua.clone(),
+                        result: "承認".to_string(),
+                    });
+                    if history.len() > 100 { history.truncate(100); }
+                }
+            }
+
             // Build response with Set-Cookie header
             let max_age_seconds = expiry_days as i64 * 24 * 60 * 60;
             let cookie_value = format!(
@@ -270,6 +300,14 @@ async fn handle_auth_validate(
             ).into_response()
         }
         Err((reason, attempts)) => {
+            // Update connection history to denied/locked
+            {
+                let mut history = state.connection_history.write().await;
+                if let Some(entry) = history.iter_mut().find(|e| e.id == body.request_id) {
+                    entry.result = if reason == "LOCKED" { "拒否 (LOCKED)".to_string() } else { "拒否".to_string() };
+                }
+            }
+
             let status = if reason == "LOCKED" {
                 StatusCode::TOO_MANY_REQUESTS
             } else {

@@ -12,7 +12,7 @@ mod state;
 mod tray;
 mod websocket;
 
-use state::{AppState, DeviceInfo, ClipboardEntry, Settings, LogEntry};
+use state::{AppState, DeviceInfo, ClipboardEntry, Settings, LogEntry, WsLogEntry, ConnectionAttempt};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use serde_json::Value;
@@ -66,6 +66,86 @@ async fn save_settings(settings: Settings, state: tauri::State<'_, Arc<AppState>
 async fn get_debug_logs(state: tauri::State<'_, Arc<AppState>>) -> Result<Vec<LogEntry>, String> {
     let logs = state.debug_logs.read().await;
     Ok(logs.clone())
+}
+
+#[tauri::command]
+async fn get_ws_logs(state: tauri::State<'_, Arc<AppState>>) -> Result<Vec<WsLogEntry>, String> {
+    let logs = state.ws_logs.read().await;
+    Ok(logs.clone())
+}
+
+#[tauri::command]
+async fn get_connection_history(state: tauri::State<'_, Arc<AppState>>) -> Result<Vec<ConnectionAttempt>, String> {
+    let history = state.connection_history.read().await;
+    Ok(history.clone())
+}
+
+#[tauri::command]
+async fn get_server_stats(state: tauri::State<'_, Arc<AppState>>) -> Result<serde_json::Value, String> {
+    let uptime = chrono::Utc::now().timestamp_millis() - state.start_time;
+    let connections = state.connected_devices.read().await.len();
+    let sent = *state.messages_sent.read().await;
+    let recv = *state.messages_received.read().await;
+    let port = *state.bound_port.read().await;
+    let status = state.server_status.read().await.clone();
+    
+    Ok(serde_json::json!({
+        "uptime": uptime,
+        "activeConnections": connections,
+        "messagesSent": sent,
+        "messagesReceived": recv,
+        "port": port,
+        "status": status
+    }))
+}
+
+#[tauri::command]
+async fn clear_all_logs(state: tauri::State<'_, Arc<AppState>>) -> Result<(), String> {
+    state.debug_logs.write().await.clear();
+    state.ws_logs.write().await.clear();
+    state.connection_history.write().await.clear();
+    Ok(())
+}
+
+#[tauri::command]
+async fn export_logs_to_file(app: AppHandle, state: tauri::State<'_, Arc<AppState>>) -> Result<(), String> {
+    use tauri_plugin_dialog::DialogExt;
+    
+    // Generate text dump
+    let mut dump = String::new();
+    dump.push_str("--- CrossClip Logs Export ---\n\n");
+    
+    dump.push_str("=== App Logs ===\n");
+    for log in state.debug_logs.read().await.iter() {
+        dump.push_str(&format!("[{}] [{}] [{}] {}\n", log.timestamp, log.level, log.source, log.message));
+    }
+    
+    dump.push_str("\n=== WebSocket Logs ===\n");
+    for log in state.ws_logs.read().await.iter() {
+        dump.push_str(&format!("[{}] [{}] [{}] {}\n", log.timestamp, log.direction, log.msg_type, log.payload));
+    }
+    
+    dump.push_str("\n=== Connection History ===\n");
+    for log in state.connection_history.read().await.iter() {
+        dump.push_str(&format!("[{}] {} ({}) -> {}\n", log.timestamp, log.ip, log.user_agent, log.result));
+    }
+    
+    let default_name = format!("crossclip_logs_{}.txt", chrono::Utc::now().format("%Y%m%d_%H%M%S"));
+    
+    app.dialog()
+        .file()
+        .set_title("ログを保存")
+        .set_file_name(&default_name)
+        .add_filter("Text Document", &["txt"])
+        .save_file(move |file_path| {
+            if let Some(path) = file_path {
+                if let Ok(p) = path.into_path() {
+                    let _ = std::fs::write(p, dump);
+                }
+            }
+        });
+    
+    Ok(())
 }
 
 #[tauri::command]
@@ -158,6 +238,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(app_state.clone())
         .invoke_handler(tauri::generate_handler![
             get_server_info,
@@ -167,6 +248,11 @@ fn main() {
             get_settings,
             save_settings,
             get_debug_logs,
+            get_ws_logs,
+            get_connection_history,
+            get_server_stats,
+            clear_all_logs,
+            export_logs_to_file,
             approve_auth_request,
             reject_auth_request,
             is_first_launch,
@@ -194,8 +280,8 @@ fn main() {
                 *app_state.local_ip.write().await = ip;
             });
 
-            // Find port
-            let port = port::find_available_port().unwrap_or(8080);
+            // Find port (Try 15483 first, then fallback)
+            let port = port::find_specific_or_available_port(15483).unwrap_or(8080);
 
             // Spawn axum server
             let state_for_server = app_state.clone();
