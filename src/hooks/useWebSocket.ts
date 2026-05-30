@@ -17,7 +17,7 @@ interface UseWebSocketOptions {
   onClipboardUpdate?: (text: string, source: string, timestamp: number) => void;
   onAuthCodeReady?: () => void;
   onAuthSuccess?: (token: string, expiresAt: number) => void;
-  onAuthRejected?: (reason: string) => void;
+  onAuthRejected?: (reason: string, requestId?: string) => void;
   onAuthCodeInvalid?: (attemptsRemaining: number) => void;
   onAuthCodeExpired?: () => void;
   onAuthLocked?: (unlockAt: number) => void;
@@ -49,7 +49,18 @@ export function useWebSocket(options: UseWebSocketOptions) {
         // Start ping interval
         pingTimerRef.current = setInterval(() => {
           if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: WS_MESSAGE_TYPES.PING }));
+            const pingMsg: any = { type: WS_MESSAGE_TYPES.PING };
+            let currentToken = options.token;
+            if (typeof document !== 'undefined') {
+              const match = document.cookie.match(new RegExp('(^| )crossclip_token=([^;]+)'));
+              if (match) {
+                currentToken = match[2];
+              }
+            }
+            if (currentToken) {
+              pingMsg.token = currentToken;
+            }
+            ws.send(JSON.stringify(pingMsg));
           }
         }, 30000);
       };
@@ -72,7 +83,7 @@ export function useWebSocket(options: UseWebSocketOptions) {
               options.onAuthSuccess?.(msg.payload.token, msg.payload.expiresAt);
               break;
             case WS_MESSAGE_TYPES.AUTH_REJECTED:
-              options.onAuthRejected?.(msg.payload.reason);
+              options.onAuthRejected?.(msg.payload.reason, msg.payload.requestId);
               break;
             case WS_MESSAGE_TYPES.AUTH_CODE_INVALID:
               options.onAuthCodeInvalid?.(msg.payload.attemptsRemaining);
@@ -134,7 +145,19 @@ export function useWebSocket(options: UseWebSocketOptions) {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         const msg: WebSocketMessage = { type, ...extra };
         if (payload) msg.payload = payload;
-        if (options.token) msg.token = options.token;
+
+        // Always try to fetch the latest token directly from cookie
+        let currentToken = options.token;
+        if (typeof document !== 'undefined') {
+          const match = document.cookie.match(new RegExp('(^| )crossclip_token=([^;]+)'));
+          if (match) {
+            currentToken = match[2];
+          }
+        }
+        if (currentToken) {
+          msg.token = currentToken;
+        }
+
         wsRef.current.send(JSON.stringify(msg));
       }
     },

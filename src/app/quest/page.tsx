@@ -42,8 +42,13 @@ export default function QuestPage() {
     onAuthCodeReady: () => {
       setAuthState(AUTH_STATES.CODE_ENTRY);
     },
-    onAuthRejected: () => {
-      setAuthState(AUTH_STATES.REJECTED);
+    onAuthRejected: (reason) => {
+      if (reason === 'invalid_token') {
+        document.cookie = 'crossclip_token=; Max-Age=0; path=/';
+        setAuthState(AUTH_STATES.IDLE);
+      } else {
+        setAuthState(AUTH_STATES.REJECTED);
+      }
     },
     onConnectionLimit: () => {
       setAuthState(AUTH_STATES.ERROR);

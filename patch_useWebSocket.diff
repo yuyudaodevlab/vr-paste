@@ -1,0 +1,37 @@
+<<<<<<< SEARCH
+  const send = useCallback(
+    (type: string, payload?: any, extra?: Record<string, any>) => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        const msg: WebSocketMessage = { type, ...extra };
+        if (payload) msg.payload = payload;
+        if (options.token) msg.token = options.token;
+        wsRef.current.send(JSON.stringify(msg));
+      }
+    },
+    [options.token]
+  );
+=======
+  const send = useCallback(
+    (type: string, payload?: any, extra?: Record<string, any>) => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        const msg: WebSocketMessage = { type, ...extra };
+        if (payload) msg.payload = payload;
+
+        // Always try to fetch the latest token directly from cookie
+        let currentToken = options.token;
+        if (typeof document !== 'undefined') {
+          const match = document.cookie.match(new RegExp('(^| )crossclip_token=([^;]+)'));
+          if (match) {
+            currentToken = match[2];
+          }
+        }
+        if (currentToken) {
+          msg.token = currentToken;
+        }
+
+        wsRef.current.send(JSON.stringify(msg));
+      }
+    },
+    [options.token]
+  );
+>>>>>>> REPLACE

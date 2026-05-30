@@ -48,7 +48,10 @@ export default function QuestClipboardPage() {
       setPcText(text);
       addHistoryEntry(text, source as 'pc' | 'quest');
     },
-    onAuthRejected: () => {
+    onAuthRejected: (reason) => {
+      if (reason === 'invalid_token') {
+        document.cookie = 'crossclip_token=; Max-Age=0; path=/';
+      }
       // Token invalid
       router.push('/quest');
     }
