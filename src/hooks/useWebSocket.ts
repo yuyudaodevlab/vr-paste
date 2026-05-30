@@ -32,6 +32,7 @@ export function useWebSocket(options: UseWebSocketOptions) {
   const pingTimerRef = useRef<ReturnType<typeof setInterval>>();
   const reconnectAttempts = useRef(0);
   const [isConnected, setIsConnected] = useState(false);
+  const deviceIdRef = useRef<string | null>(null);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -53,9 +54,7 @@ export function useWebSocket(options: UseWebSocketOptions) {
             let currentToken = options.token;
             if (typeof document !== 'undefined') {
               const match = document.cookie.match(new RegExp('(^| )crossclip_token=([^;]+)'));
-              if (match) {
-                currentToken = match[2];
-              }
+              currentToken = match ? match[2] : undefined;
             }
             if (currentToken) {
               pingMsg.token = currentToken;
@@ -80,9 +79,13 @@ export function useWebSocket(options: UseWebSocketOptions) {
               options.onAuthCodeReady?.();
               break;
             case WS_MESSAGE_TYPES.AUTH_SUCCESS:
+              if (msg.payload?.deviceId) deviceIdRef.current = msg.payload.deviceId;
               options.onAuthSuccess?.(msg.payload.token, msg.payload.expiresAt);
               break;
             case WS_MESSAGE_TYPES.AUTH_REJECTED:
+              if (msg.payload?.target_device_id && msg.payload.target_device_id !== deviceIdRef.current) {
+                break;
+              }
               options.onAuthRejected?.(msg.payload.reason, msg.payload.requestId);
               break;
             case WS_MESSAGE_TYPES.AUTH_CODE_INVALID:
@@ -98,6 +101,7 @@ export function useWebSocket(options: UseWebSocketOptions) {
               options.onConnectionLimit?.(msg.payload.maxDevices);
               break;
             case WS_MESSAGE_TYPES.PONG:
+              if (msg.payload?.deviceId) deviceIdRef.current = msg.payload.deviceId;
               // Keep-alive response, no action needed
               break;
           }
@@ -112,6 +116,8 @@ export function useWebSocket(options: UseWebSocketOptions) {
         if (pingTimerRef.current) {
           clearInterval(pingTimerRef.current);
         }
+
+        if (reconnectAttempts.current === Infinity) return;
 
         // Exponential backoff reconnection
         const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 30000);
@@ -150,9 +156,7 @@ export function useWebSocket(options: UseWebSocketOptions) {
         let currentToken = options.token;
         if (typeof document !== 'undefined') {
           const match = document.cookie.match(new RegExp('(^| )crossclip_token=([^;]+)'));
-          if (match) {
-            currentToken = match[2];
-          }
+          currentToken = match ? match[2] : undefined;
         }
         if (currentToken) {
           msg.token = currentToken;

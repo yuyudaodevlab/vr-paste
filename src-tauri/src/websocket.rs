@@ -117,7 +117,38 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, client_ip: Strin
                 if msg_type == "PING" {
                     // Check if token is present and valid
                     if let Some(t) = token {
-                        if crate::auth::validate_session(&state_clone, t).await.is_none() {
+                        if let Some(session) = crate::auth::validate_session(&state_clone, t).await {
+                            // Add to connected_devices if not present
+                            let is_connected = state_clone.connected_devices.read().await.contains_key(&session.device_id);
+                            if !is_connected {
+                                let device = DeviceInfo {
+                                    id: session.device_id.clone(),
+                                    ip: client_ip_clone.clone(),
+                                    user_agent: session.user_agent.clone(),
+                                    nickname: None,
+                                    connected_at: Utc::now().timestamp_millis(),
+                                };
+                                state_clone.connected_devices.write().await.insert(session.device_id.clone(), device.clone());
+                                
+                                // Emit event
+                                if let Some(app_handle) = state_clone.app_handle.read().await.as_ref() {
+                                    let _ = app_handle.emit("device-connected", serde_json::json!({
+                                        "id": device.id,
+                                        "ip": device.ip,
+                                        "userAgent": device.user_agent,
+                                        "connectedAt": device.connected_at
+                                    }));
+                                }
+                            }
+
+                            // Send PONG
+                            let pong = serde_json::json!({ 
+                                "type": "PONG",
+                                "payload": { "deviceId": session.device_id }
+                            });
+                            let _ = tx_private.send(pong.to_string());
+                            continue;
+                        } else {
                             let err_msg = serde_json::json!({
                                 "type": "AUTH_REJECTED",
                                 "payload": { "reason": "invalid_token" }
@@ -157,7 +188,8 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, client_ip: Strin
                                         "payload": {
                                             "token": new_token,
                                             "expiresAt": expiry,
-                                            "requestId": request_id_str
+                                            "requestId": request_id_str,
+                                            "deviceId": conn_id_for_recv.clone()
                                         }
                                     });
                                     let _ = tx_private.send(success_msg.to_string());
