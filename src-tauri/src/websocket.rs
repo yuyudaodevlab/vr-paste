@@ -1,12 +1,13 @@
 use crate::auth::validate_code;
 use crate::state::{AppState, ClipboardEntry, DeviceInfo};
 use axum::{
-    extract::{ws::{Message, WebSocket}, State, WebSocketUpgrade},
+    extract::{ConnectInfo, ws::{Message, WebSocket}, State, WebSocketUpgrade},
     response::IntoResponse,
 };
 use chrono::Utc;
 use futures_util::{sink::SinkExt, stream::StreamExt};
 use serde_json::Value;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use tauri::Emitter;
 use uuid::Uuid;
@@ -14,11 +15,13 @@ use uuid::Uuid;
 pub async fn ws_handler(
     ws: WebSocketUpgrade,
     State(state): State<Arc<AppState>>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(|socket| handle_socket(socket, state))
+    let ip = addr.ip().to_string();
+    ws.on_upgrade(move |socket| handle_socket(socket, state, ip))
 }
 
-async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
+async fn handle_socket(socket: WebSocket, state: Arc<AppState>, client_ip: String) {
     let (mut sender, mut receiver) = socket.split();
     let mut rx = state.ws_broadcast.subscribe();
 
@@ -35,6 +38,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
     });
 
     let state_clone = Arc::clone(&state);
+    let client_ip_clone = client_ip.clone();
     let mut recv_task = tokio::spawn(async move {
         while let Some(Ok(Message::Text(text))) = receiver.next().await {
             if let Ok(json) = serde_json::from_str::<Value>(&text) {
@@ -50,7 +54,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                 if msg_type == "AUTH_CODE_SUBMIT" {
                     if let (Some(payload), Some(request_id)) = (json.get("payload"), json.get("requestId")) {
                         if let Some(code) = payload.get("code").and_then(|c| c.as_str()) {
-                            let ip = "unknown"; // Extract IP properly in a real setup
+                            let ip = client_ip_clone.as_str();
                             let lockout = state_clone.settings.read().await.code_lockout_minutes;
                             let request_id_str = request_id.as_str().unwrap_or("");
                             
@@ -85,6 +89,17 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                                             "connectedAt": device.connected_at
                                         }));
                                     }
+
+                                    // Emit auth-completed so PC ApprovalModal auto-closes
+                                    if let Some(app_handle) = state_clone.app_handle.read().await.as_ref() {
+                                        let _ = app_handle.emit("auth-completed", serde_json::json!({
+                                            "requestId": request_id_str,
+                                            "deviceId": conn_id_for_recv.clone()
+                                        }));
+                                    }
+
+                                    // Clean up used approval code
+                                    crate::auth::invalidate_code(&state_clone, code).await;
                                 }
                                 Err((reason, attempts)) => {
                                     let err_msg = if reason == "LOCKED" {

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useConnectionStore } from '@/store/connectionStore';
-import { tauriInvoke, formatDuration } from '@/lib/utils';
+import { tauriInvoke, formatDuration, tauriListen } from '@/lib/utils';
 import toast from 'react-hot-toast';
 
 export function ApprovalModal() {
@@ -56,6 +56,26 @@ export function ApprovalModal() {
       setShowCodeView(true);
     }
   }, [approvalCode, approvalRequestId]);
+
+  // Auto-close modal when auth is completed (code successfully validated)
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    
+    const setup = async () => {
+      unlisten = await tauriListen('auth-completed', (payload: { requestId: string; deviceId: string }) => {
+        // Close the modal and clean up
+        setShowCodeView(false);
+        setApprovalCode(null, null, null);
+        if (payload.requestId) {
+          removeAuthRequest(payload.requestId);
+        }
+        toast.success('デバイスが接続されました');
+      });
+    };
+    
+    setup();
+    return () => { unlisten?.(); };
+  }, [removeAuthRequest, setApprovalCode]);
 
   const handleApprove = useCallback(async () => {
     if (!currentRequest) return;

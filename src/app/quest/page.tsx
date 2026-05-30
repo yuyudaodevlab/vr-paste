@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { getCookie, setCookie } from '@/lib/utils';
+import { getCookie } from '@/lib/utils';
 import { AUTH_STATES, type AuthState } from '@/lib/constants';
 import { AuthRequest } from '@/components/quest/AuthRequest';
 import { CodeEntry } from '@/components/quest/CodeEntry';
@@ -37,30 +37,13 @@ export default function QuestPage() {
     }
   }, [router]);
 
-  const ws = useWebSocket({
+  useWebSocket({
     url: wsUrl,
     onAuthCodeReady: () => {
       setAuthState(AUTH_STATES.CODE_ENTRY);
     },
-    onAuthRejected: (reason) => {
+    onAuthRejected: () => {
       setAuthState(AUTH_STATES.REJECTED);
-    },
-    onAuthSuccess: (token, expiresAt) => {
-      // Save token as cookie so clipboard page can use it
-      const daysUntilExpiry = Math.max(1, Math.ceil((expiresAt - Date.now()) / 86400000));
-      setCookie('crossclip_token', token, daysUntilExpiry);
-      
-      // Small delay to ensure cookie is set before navigation
-      setTimeout(() => {
-        router.push('/quest/clipboard');
-      }, 100);
-    },
-    onAuthCodeInvalid: (attempts) => {
-      setCodeError('コードが正しくありません');
-      setAttemptsRemaining(attempts);
-    },
-    onAuthLocked: (unlockTime) => {
-      setLockedUntil(unlockTime);
     },
     onConnectionLimit: () => {
       setAuthState(AUTH_STATES.ERROR);
@@ -77,7 +60,12 @@ export default function QuestPage() {
         const data = await res.json();
         setRequestId(data.requestId);
       } else if (res.status === 403) {
-        setAuthState(AUTH_STATES.ERROR); // e.g. Limit reached
+        const data = await res.json().catch(() => null);
+        if (data?.error === 'CONNECTION_LIMIT') {
+          setAuthState(AUTH_STATES.ERROR);
+        } else {
+          setAuthState(AUTH_STATES.ERROR);
+        }
       } else {
         setAuthState(AUTH_STATES.REJECTED);
       }
@@ -90,9 +78,37 @@ export default function QuestPage() {
     setAuthState(AUTH_STATES.IDLE);
   };
 
-  const handleCodeSubmit = (code: string) => {
-    if (requestId) {
-      ws.submitAuthCode(code, requestId);
+  const handleCodeSubmit = async (code: string) => {
+    if (!requestId) return;
+    try {
+      const res = await fetch('/api/auth/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, requestId }),
+        credentials: 'same-origin',
+      });
+      if (res.ok) {
+        // Cookie is set by the server via Set-Cookie header
+        // Redirect to clipboard page
+        router.push('/quest/clipboard');
+      } else {
+        const data = await res.json();
+        if (data.error === 'LOCKED') {
+          const lockout = (await res.json().catch(() => null));
+          setLockedUntil(Date.now() + 10 * 60 * 1000); // 10 min lockout
+          setAuthState(AUTH_STATES.LOCKED);
+        } else if (data.error === 'EXPIRED') {
+          setCodeError('承認コードの有効期限が切れました');
+        } else {
+          setCodeError('コードが正しくありません');
+          setAttemptsRemaining(data.attemptsRemaining ?? null);
+          if (data.attemptsRemaining === 0) {
+            setLockedUntil(Date.now() + 10 * 60 * 1000);
+          }
+        }
+      }
+    } catch (e) {
+      setCodeError('通信エラーが発生しました');
     }
   };
 

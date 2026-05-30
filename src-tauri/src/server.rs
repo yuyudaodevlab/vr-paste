@@ -1,15 +1,16 @@
-use crate::auth::create_auth_request;
+use crate::auth::{create_auth_request, validate_code, create_session, validate_session, invalidate_code, check_device_limit};
 use crate::network::is_private_ip;
 use crate::state::AppState;
 use crate::websocket::ws_handler;
 use axum::{
     extract::{ConnectInfo, State},
-    http::{HeaderMap, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     middleware::{self, Next},
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
     Json, Router,
 };
+use axum_extra::extract::CookieJar;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -55,6 +56,7 @@ pub async fn start_server(app_handle: tauri::AppHandle, state: Arc<AppState>, po
 
     let api_routes = Router::new()
         .route("/auth/request", post(handle_auth_request))
+        .route("/auth/validate", post(handle_auth_validate))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             private_ip_filter,
@@ -70,8 +72,8 @@ pub async fn start_server(app_handle: tauri::AppHandle, state: Arc<AppState>, po
         .route("/", get(|| async { Redirect::temporary("/quest") }))
         .route("/quest", get(|| async { serve_html("quest.html").await }))
         .route("/quest/", get(|| async { serve_html("quest.html").await }))
-        .route("/quest/clipboard", get(|| async { serve_html("quest/clipboard.html").await }))
-        .route("/quest/clipboard/", get(|| async { serve_html("quest/clipboard.html").await }))
+        .route("/quest/clipboard", get(serve_clipboard_with_auth))
+        .route("/quest/clipboard/", get(serve_clipboard_with_auth))
         .nest("/api", api_routes)
         .route("/ws", get(ws_handler))
         .fallback_service(ServeDir::new(out_dir))
@@ -116,6 +118,14 @@ async fn handle_auth_request(
         }
     }
 
+    // Device limit check
+    if !check_device_limit(&state).await {
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({
+            "error": "CONNECTION_LIMIT",
+            "message": "別のデバイスが接続中です。PCの設定から同時接続数を変更できます。"
+        })));
+    }
+
     let ua = headers
         .get("user-agent")
         .and_then(|h| h.to_str().ok())
@@ -143,13 +153,135 @@ async fn private_ip_filter(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     req: axum::extract::Request,
     next: Next,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, Response> {
     let allow_external = state.settings.read().await.allow_external_access;
     if !allow_external {
         let ip = addr.ip().to_string();
         if !is_private_ip(&ip) {
-            return Err(StatusCode::FORBIDDEN);
+            return Err((
+                StatusCode::FORBIDDEN,
+                Html(r#"<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>アクセス拒否</title><style>body{background:#090909;color:#e8e8ea;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}div{text-align:center;padding:40px;border:1px solid #2a2a30;border-radius:12px;background:#111114}h1{color:#ef4444;margin-bottom:16px}p{color:#8888a0}</style></head><body><div><h1>403</h1><p>このサービスはプライベートネットワーク内からのみアクセス可能です。</p></div></body></html>"#.to_string()),
+            ).into_response());
         }
     }
     Ok(next.run(req).await)
+}
+
+async fn serve_clipboard_with_auth(
+    State(state): State<Arc<AppState>>,
+    jar: CookieJar,
+) -> Response {
+    if let Some(cookie) = jar.get("crossclip_token") {
+        if validate_session(&state, cookie.value()).await.is_some() {
+            return serve_html("quest/clipboard.html").await;
+        }
+    }
+    Redirect::temporary("/quest").into_response()
+}
+
+#[derive(serde::Deserialize)]
+struct ValidateRequest {
+    code: String,
+    #[serde(rename = "requestId")]
+    request_id: String,
+}
+
+async fn handle_auth_validate(
+    State(state): State<Arc<AppState>>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Json(body): Json<ValidateRequest>,
+) -> Response {
+    let ip = addr.ip().to_string();
+
+    // Rate limit check
+    {
+        let mut rate_limit = state.rate_limit.write().await;
+        let now = chrono::Utc::now().timestamp_millis();
+        let (count, timestamp) = rate_limit.entry(ip.clone()).or_insert((0, now));
+        if now - *timestamp > 60000 {
+            *count = 1;
+            *timestamp = now;
+        } else {
+            *count += 1;
+            if *count > 10 {
+                return (StatusCode::TOO_MANY_REQUESTS, Json(serde_json::json!({ "error": "Rate limit exceeded" }))).into_response();
+            }
+        }
+    }
+
+    let lockout = state.settings.read().await.code_lockout_minutes;
+    
+    match validate_code(&state, &body.code, &body.request_id, &ip, lockout).await {
+        Ok(_token) => {
+            let ua = headers
+                .get("user-agent")
+                .and_then(|h| h.to_str().ok())
+                .unwrap_or("Unknown")
+                .to_string();
+
+            let expiry_days = state.settings.read().await.session_expiry_days;
+            let session = create_session(&state, ip.clone(), ua.clone(), expiry_days).await;
+            
+            // Clean up the used approval code
+            invalidate_code(&state, &body.code).await;
+
+            // Remove the pending request
+            state.pending_requests.write().await.remove(&body.request_id);
+
+            // Register as connected device
+            let device = crate::state::DeviceInfo {
+                id: session.device_id.clone(),
+                ip: ip.clone(),
+                user_agent: ua.clone(),
+                nickname: None,
+                connected_at: chrono::Utc::now().timestamp_millis(),
+            };
+            state.connected_devices.write().await.insert(session.device_id.clone(), device.clone());
+
+            // Emit events to PC frontend
+            if let Some(app_handle) = state.app_handle.read().await.as_ref() {
+                let _ = app_handle.emit("device-connected", serde_json::json!({
+                    "id": device.id,
+                    "ip": device.ip,
+                    "userAgent": device.user_agent,
+                    "connectedAt": device.connected_at
+                }));
+                let _ = app_handle.emit("auth-completed", serde_json::json!({
+                    "requestId": body.request_id,
+                    "deviceId": session.device_id
+                }));
+            }
+
+            // Build response with Set-Cookie header
+            let max_age_seconds = expiry_days as i64 * 24 * 60 * 60;
+            let cookie_value = format!(
+                "crossclip_token={}; HttpOnly; SameSite=Strict; Max-Age={}; Path=/",
+                session.token, max_age_seconds
+            );
+
+            (
+                StatusCode::OK,
+                [(header::SET_COOKIE, cookie_value)],
+                Json(serde_json::json!({
+                    "success": true,
+                    "deviceId": session.device_id
+                }))
+            ).into_response()
+        }
+        Err((reason, attempts)) => {
+            let status = if reason == "LOCKED" {
+                StatusCode::TOO_MANY_REQUESTS
+            } else {
+                StatusCode::UNAUTHORIZED
+            };
+            (
+                status,
+                Json(serde_json::json!({
+                    "error": reason,
+                    "attemptsRemaining": attempts
+                }))
+            ).into_response()
+        }
+    }
 }

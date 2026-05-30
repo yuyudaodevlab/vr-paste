@@ -79,7 +79,12 @@ export function useTauriEvents() {
         setSettings(payload);
       });
 
-      unlisteners.current = [u1, u2, u3, u4, u5, u6, u7, u8];
+      const u9 = await tauriListen('auth-completed', (payload: { requestId: string; deviceId: string }) => {
+        removeAuthRequest(payload.requestId);
+        setApprovalCode(null, null, null);
+      });
+
+      unlisteners.current = [u1, u2, u3, u4, u5, u6, u7, u8, u9];
     };
 
     setupListeners();

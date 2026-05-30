@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { formatDuration } from '@/lib/utils';
 
 interface CodeEntryProps {
-  onSubmit: (code: string) => void;
+  onSubmit: (code: string) => Promise<void> | void;
   error: string | null;
   attemptsRemaining: number | null;
   lockedUntil: number | null;
@@ -14,6 +14,7 @@ export function CodeEntry({ onSubmit, error, attemptsRemaining, lockedUntil }: C
   const [code, setCode] = useState(['', '', '', '', '', '']);
   const inputsRef = useRef<(HTMLInputElement | null)[]>([]);
   const [lockRemaining, setLockRemaining] = useState(0);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (!lockedUntil) return;
@@ -27,6 +28,13 @@ export function CodeEntry({ onSubmit, error, attemptsRemaining, lockedUntil }: C
     const timer = setInterval(updateCountdown, 1000);
     return () => clearInterval(timer);
   }, [lockedUntil]);
+
+  useEffect(() => {
+    if (error) {
+      setCode(['', '', '', '', '', '']);
+      inputsRef.current[0]?.focus();
+    }
+  }, [error]);
 
   const handleChange = (index: number, value: string) => {
     if (!/^[0-9]?$/.test(value)) return;
@@ -46,10 +54,15 @@ export function CodeEntry({ onSubmit, error, attemptsRemaining, lockedUntil }: C
     }
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const fullCode = code.join('');
-    if (fullCode.length === 6) {
-      onSubmit(fullCode);
+    if (fullCode.length === 6 && !isSubmitting) {
+      setIsSubmitting(true);
+      try {
+        await onSubmit(fullCode);
+      } finally {
+        setIsSubmitting(false);
+      }
     }
   };
 
@@ -106,11 +119,11 @@ export function CodeEntry({ onSubmit, error, attemptsRemaining, lockedUntil }: C
 
       <button
         onClick={handleSubmit}
-        disabled={code.join('').length !== 6}
+        disabled={code.join('').length !== 6 || isSubmitting}
         className="btn btn-primary w-full text-lg font-bold"
         style={{ minHeight: '56px' }}
       >
-        確認
+        {isSubmitting ? '確認中...' : '確認'}
       </button>
     </div>
   );

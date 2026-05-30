@@ -1,6 +1,6 @@
-use crate::state::{AppState, AuthRequest};
+use crate::state::{AppState, AuthRequest, SessionInfo};
 use chrono::Utc;
-use rand::Rng;
+use rand::{Rng, rngs::OsRng};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -32,14 +32,8 @@ pub async fn approve_request(
     let mut requests = state.pending_requests.write().await;
     if let Some(request) = requests.get_mut(request_id) {
         request.status = "approved".to_string();
-
-        let code;
-        let expiry;
-        {
-            let mut rng = rand::thread_rng();
-            code = format!("{:06}", rng.gen_range(0..1000000));
-            expiry = Utc::now().timestamp_millis() + (expiry_minutes as i64 * 60 * 1000);
-        }
+        let code = format!("{:06}", OsRng.gen_range(0..1000000u32));
+        let expiry = Utc::now().timestamp_millis() + (expiry_minutes as i64 * 60 * 1000);
 
         let mut active_codes = state.active_codes.write().await;
         active_codes.insert(code.clone(), (request_id.to_string(), expiry));
@@ -103,4 +97,63 @@ pub async fn validate_code(
     };
     
     Err(("INVALID".to_string(), remaining))
+}
+
+pub async fn create_session(
+    state: &Arc<AppState>,
+    ip: String,
+    user_agent: String,
+    expiry_days: u32,
+) -> SessionInfo {
+    let token = Uuid::new_v4().to_string();
+    let device_id = Uuid::new_v4().to_string();
+    let now = Utc::now().timestamp_millis();
+    let expires_at = now + (expiry_days as i64 * 24 * 60 * 60 * 1000);
+
+    let session = SessionInfo {
+        token: token.clone(),
+        device_id: device_id.clone(),
+        ip: ip.clone(),
+        user_agent: user_agent.clone(),
+        created_at: now,
+        expires_at,
+    };
+
+    state.active_sessions.write().await.insert(token.clone(), session.clone());
+    session
+}
+
+pub async fn validate_session(state: &Arc<AppState>, token: &str) -> Option<SessionInfo> {
+    let sessions = state.active_sessions.read().await;
+    if let Some(session) = sessions.get(token) {
+        let now = Utc::now().timestamp_millis();
+        if now < session.expires_at {
+            return Some(session.clone());
+        }
+    }
+    None
+}
+
+pub async fn revoke_session(state: &Arc<AppState>, token: &str) {
+    state.active_sessions.write().await.remove(token);
+}
+
+pub async fn revoke_all_sessions_impl(state: &Arc<AppState>) {
+    state.active_sessions.write().await.clear();
+}
+
+pub async fn invalidate_code(state: &Arc<AppState>, code: &str) {
+    state.active_codes.write().await.remove(code);
+}
+
+pub async fn check_device_limit(state: &Arc<AppState>) -> bool {
+    let settings = state.settings.read().await;
+    let max = settings.max_devices;
+    if max == 0 {
+        return true; // unlimited
+    }
+    let sessions = state.active_sessions.read().await;
+    let now = Utc::now().timestamp_millis();
+    let active_count = sessions.values().filter(|s| s.expires_at > now).count() as u32;
+    active_count < max
 }

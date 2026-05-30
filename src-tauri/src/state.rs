@@ -84,6 +84,16 @@ pub struct LogEntry {
     pub source: String,
 }
 
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct SessionInfo {
+    pub token: String,
+    pub device_id: String,
+    pub ip: String,
+    pub user_agent: String,
+    pub created_at: i64,
+    pub expires_at: i64,
+}
+
 pub struct AppState {
     pub server_status: RwLock<String>,
     pub bound_port: RwLock<u16>,
@@ -106,6 +116,8 @@ pub struct AppState {
     
     pub ws_broadcast: broadcast::Sender<String>,
 
+    pub active_sessions: RwLock<HashMap<String, SessionInfo>>,  // token -> SessionInfo
+
     /// Tauri AppHandle for emitting events from the Axum server context
     pub app_handle: RwLock<Option<AppHandle>>,
 }
@@ -126,6 +138,7 @@ impl AppState {
             settings: RwLock::new(Settings::default()),
             debug_logs: RwLock::new(Vec::new()),
             ws_broadcast: tx,
+            active_sessions: RwLock::new(HashMap::new()),
             app_handle: RwLock::new(None),
         })
     }

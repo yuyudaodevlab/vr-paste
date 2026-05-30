@@ -124,14 +124,31 @@ async fn disconnect_device(device_id: String, state: tauri::State<'_, Arc<AppSta
 }
 
 #[tauri::command]
-async fn revoke_all_sessions() -> Result<(), String> {
-    // Stub
+async fn revoke_all_sessions(state: tauri::State<'_, Arc<AppState>>) -> Result<(), String> {
+    auth::revoke_all_sessions_impl(&state).await;
+    state.connected_devices.write().await.clear();
     Ok(())
 }
 
 #[tauri::command]
-async fn revoke_device_session(_device_id: String) -> Result<(), String> {
-    // Stub
+async fn revoke_device_session(device_id: String, state: tauri::State<'_, Arc<AppState>>) -> Result<(), String> {
+    // Find and revoke the session for this device
+    let token_to_revoke = {
+        let sessions = state.active_sessions.read().await;
+        sessions.iter()
+            .find(|(_, s)| s.device_id == device_id)
+            .map(|(token, _)| token.clone())
+    };
+    if let Some(token) = token_to_revoke {
+        auth::revoke_session(&state, &token).await;
+    }
+    state.connected_devices.write().await.remove(&device_id);
+    Ok(())
+}
+
+#[tauri::command]
+async fn invalidate_approval_code(code: String, state: tauri::State<'_, Arc<AppState>>) -> Result<(), String> {
+    auth::invalidate_code(&state, &code).await;
     Ok(())
 }
 
@@ -155,7 +172,8 @@ fn main() {
             is_first_launch,
             disconnect_device,
             revoke_all_sessions,
-            revoke_device_session
+            revoke_device_session,
+            invalidate_approval_code
         ])
         .setup(move |app| {
             let app_handle = app.handle().clone();
