@@ -200,6 +200,11 @@ async fn is_first_launch() -> Result<bool, String> {
 #[tauri::command]
 async fn disconnect_device(device_id: String, state: tauri::State<'_, Arc<AppState>>) -> Result<(), String> {
     state.connected_devices.write().await.remove(&device_id);
+    let err_msg = serde_json::json!({
+        "type": "AUTH_REJECTED",
+        "payload": { "reason": "invalid_token", "target_device_id": device_id }
+    });
+    let _ = state.ws_broadcast.send(err_msg.to_string());
     Ok(())
 }
 
@@ -207,12 +212,16 @@ async fn disconnect_device(device_id: String, state: tauri::State<'_, Arc<AppSta
 async fn revoke_all_sessions(state: tauri::State<'_, Arc<AppState>>) -> Result<(), String> {
     auth::revoke_all_sessions_impl(&state).await;
     state.connected_devices.write().await.clear();
+    let err_msg = serde_json::json!({
+        "type": "AUTH_REJECTED",
+        "payload": { "reason": "invalid_token" }
+    });
+    let _ = state.ws_broadcast.send(err_msg.to_string());
     Ok(())
 }
 
 #[tauri::command]
 async fn revoke_device_session(device_id: String, state: tauri::State<'_, Arc<AppState>>) -> Result<(), String> {
-    // Find and revoke the session for this device
     let token_to_revoke = {
         let sessions = state.active_sessions.read().await;
         sessions.iter()
@@ -221,6 +230,11 @@ async fn revoke_device_session(device_id: String, state: tauri::State<'_, Arc<Ap
     };
     if let Some(token) = token_to_revoke {
         auth::revoke_session(&state, &token).await;
+        let err_msg = serde_json::json!({
+            "type": "AUTH_REJECTED",
+            "payload": { "reason": "invalid_token", "target_device_id": device_id }
+        });
+        let _ = state.ws_broadcast.send(err_msg.to_string());
     }
     state.connected_devices.write().await.remove(&device_id);
     Ok(())
