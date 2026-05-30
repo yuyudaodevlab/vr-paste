@@ -20,9 +20,17 @@ export const useClipboardStore = create<ClipboardState>((set) => ({
   setCurrentText: (text) => set({ currentText: text }),
 
   addLogEntry: (entry) =>
-    set((state) => ({
-      log: [entry, ...state.log],
-    })),
+    set((state) => {
+      const exists = state.log.some((e) => e.id === entry.id);
+      if (exists) {
+        return {
+          log: state.log.map((e) => e.id === entry.id ? entry : e)
+        };
+      }
+      return {
+        log: [entry, ...state.log],
+      };
+    }),
 
   clearLog: () => set({ log: [] }),
   setLog: (log) => set({ log }),

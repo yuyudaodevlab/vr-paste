@@ -286,7 +286,7 @@ async fn handle_auth_validate(
             // Build response with Set-Cookie header
             let max_age_seconds = expiry_days as i64 * 24 * 60 * 60;
             let cookie_value = format!(
-                "crossclip_token={}; HttpOnly; SameSite=Strict; Max-Age={}; Path=/",
+                "crossclip_token={}; SameSite=Strict; Max-Age={}; Path=/",
                 session.token, max_age_seconds
             );
 

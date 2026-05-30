@@ -35,9 +35,19 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
   setConnectedDevices: (devices) => set({ connectedDevices: devices }),
 
   addDevice: (device) =>
-    set((state) => ({
-      connectedDevices: [...state.connectedDevices, device],
-    })),
+    set((state) => {
+      const exists = state.connectedDevices.some((d) => d.id === device.id);
+      if (exists) {
+        return {
+          connectedDevices: state.connectedDevices.map((d) => 
+            d.id === device.id ? device : d
+          ),
+        };
+      }
+      return {
+        connectedDevices: [...state.connectedDevices, device],
+      };
+    }),
 
   removeDevice: (deviceId) =>
     set((state) => ({
@@ -45,9 +55,19 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
     })),
 
   addAuthRequest: (request) =>
-    set((state) => ({
-      pendingAuthRequests: [...state.pendingAuthRequests, request],
-    })),
+    set((state) => {
+      const exists = state.pendingAuthRequests.some((r) => r.id === request.id);
+      if (exists) {
+        return {
+          pendingAuthRequests: state.pendingAuthRequests.map((r) => 
+            r.id === request.id ? request : r
+          ),
+        };
+      }
+      return {
+        pendingAuthRequests: [...state.pendingAuthRequests, request],
+      };
+    }),
 
   removeAuthRequest: (requestId) =>
     set((state) => ({
