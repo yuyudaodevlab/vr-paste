@@ -17,21 +17,34 @@ use std::sync::Arc;
 use tauri::Emitter;
 use tower_http::{cors::CorsLayer, services::ServeDir};
 
+use tauri::Manager;
+
 /// Resolve the `out/` directory containing Next.js exported static files.
-/// Uses CARGO_MANIFEST_DIR (compile-time) for reliability, with runtime fallback.
-fn resolve_out_dir() -> PathBuf {
+/// Checks runtime resource directory first, then falls back to dev environment paths.
+fn resolve_out_dir(app_handle: &tauri::AppHandle) -> PathBuf {
+    // 1. Try to find the bundled `out` directory in the resource path (production)
+    if let Ok(resource_dir) = app_handle.path().resource_dir() {
+        let candidate = resource_dir.join("out");
+        if candidate.exists() {
+            return candidate;
+        }
+    }
+
+    // 2. Try CARGO_MANIFEST_DIR (development)
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let candidate = manifest_dir.join("../out");
     if candidate.exists() {
         return candidate;
     }
-    // Fallback: try relative to current working directory
+
+    // 3. Fallback: try relative to current working directory
     let cwd_candidate = std::env::current_dir()
         .unwrap_or_default()
         .join("out");
     if cwd_candidate.exists() {
         return cwd_candidate;
     }
+
     // Last resort
     candidate
 }
@@ -39,12 +52,16 @@ fn resolve_out_dir() -> PathBuf {
 /// Serve a static HTML file from the out directory.
 /// Next.js `output: 'export'` generates flat files like `quest.html`,
 /// NOT `quest/index.html`, so ServeDir can't resolve directory URLs.
-async fn serve_html(file: &str) -> Response {
-    let out_dir = resolve_out_dir();
-    let path = out_dir.join(file);
-    match tokio::fs::read_to_string(&path).await {
-        Ok(content) => Html(content).into_response(),
-        Err(_) => StatusCode::NOT_FOUND.into_response(),
+async fn serve_html(state: &AppState, file: &str) -> Response {
+    if let Some(app_handle) = state.app_handle.read().await.as_ref() {
+        let out_dir = resolve_out_dir(&app_handle);
+        let path = out_dir.join(file);
+        match tokio::fs::read_to_string(&path).await {
+            Ok(content) => Html(content).into_response(),
+            Err(_) => StatusCode::NOT_FOUND.into_response(),
+        }
+    } else {
+        StatusCode::INTERNAL_SERVER_ERROR.into_response()
     }
 }
 
@@ -52,7 +69,7 @@ pub async fn start_server(app_handle: tauri::AppHandle, state: Arc<AppState>, po
     // Store app_handle in state so handlers can emit events
     *state.app_handle.write().await = Some(app_handle.clone());
 
-    let out_dir = resolve_out_dir();
+    let out_dir = resolve_out_dir(&app_handle);
 
     let api_routes = Router::new()
         .route("/auth/request", post(handle_auth_request))
@@ -70,8 +87,8 @@ pub async fn start_server(app_handle: tauri::AppHandle, state: Arc<AppState>, po
     // Quest pages that map directory-style URLs to the correct .html files.
     let app = Router::new()
         .route("/", get(|| async { Redirect::temporary("/quest") }))
-        .route("/quest", get(|| async { serve_html("quest.html").await }))
-        .route("/quest/", get(|| async { serve_html("quest.html").await }))
+        .route("/quest", get(|State(state): State<Arc<AppState>>| async move { serve_html(&state, "quest.html").await }))
+        .route("/quest/", get(|State(state): State<Arc<AppState>>| async move { serve_html(&state, "quest.html").await }))
         .route("/quest/clipboard", get(serve_clipboard_with_auth))
         .route("/quest/clipboard/", get(serve_clipboard_with_auth))
         .nest("/api", api_routes)
@@ -186,7 +203,7 @@ async fn serve_clipboard_with_auth(
 ) -> Response {
     if let Some(cookie) = jar.get("crossclip_token") {
         if validate_session(&state, cookie.value()).await.is_some() {
-            return serve_html("quest/clipboard.html").await;
+            return serve_html(&state, "quest/clipboard.html").await;
         }
     }
     Redirect::temporary("/quest").into_response()
